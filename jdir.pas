@@ -38,8 +38,8 @@ type
   FileRecord_Ptr    = ^FileRecord;
   FileRecord =
     record
-      UserNumber : Integer;        { User Number }
       FileName   : Str12;          { File Name }
+      UserNumber : Integer;        { User Number }
       FileSize   : Integer;        { File size in KiloBytes }
       NextFile   : FileRecord_Ptr; { Next file pointer }
     end;
@@ -49,7 +49,8 @@ type
 var
   DMA               : AnyDMA;
   FCB               : AnyFCB absolute $005C;
-  Files             : FileRecord_Ptr;
+  FileList          : FileRecord_Ptr;
+  scratch           : String[255];
 
 
 { Initialize Bdos DMA access. }
@@ -87,36 +88,39 @@ end;
 Procedure AddFile(var NewFile : FileRecord_Ptr);
 var
   FilePtr : FileRecord_Ptr;
-  PrevPtr : FileRecord_Ptr;
+  NextPtr : FileRecord_Ptr;
 
 begin
-  if (Files = Nil) then
-    Files := NewFile
+  if (FileList = Nil) then
+    { First file in the list. }
+    FileList := NewFile
   else begin
-    { Scan the file list looking for a place to add the new file. }
-    FilePtr := Files;
-    PrevPtr := Nil;
+    { Scan the file list looking for a place the new file fits. }
+    FilePtr := FileList;
     While (FilePtr <> Nil) do begin
-      if (NewFile^.FileName < FilePtr^.FileName) then begin
-        if (PrevPtr = Nil) then begin
-          NewFile^.NextFile := FilePtr;
-          Files := NewFile;
-        end else begin
-          PrevPtr^.NextFile := NewFile;
-          NewFile^.NextFile := FilePtr;
-        end; { if (NewFile^.FileName < FilePtr^.FileName) }
+      NextPtr := FilePtr^.NextFile;
+      if (NextPtr = Nil) then begin
+        { Reached the end of the list. Append the new file. }
+        FilePtr^.NextFile := NewFile;
         FilePtr := Nil;
       end else begin
-        if (FilePtr^.NextFile = Nil) then begin
-          FilePtr^.NextFile := NewFile;
+        if (NewFile^.FileName < NextPtr^.FileName) then begin
+          { Found where the file belings. }
+          if (FileList = FilePtr) then begin
+            FileList := NewFile;
+            NewFile^.NextFile := FilePtr;
+          end else begin
+            FilePtr^.NextFile := NewFile;
+            NewFile^.NextFile := NextPtr;
+          end; { if (FileList = FilePtr) }
           FilePtr := Nil;
         end else begin
-          PrevPtr := FilePtr;
-          FilePtr := FilePtr^.NextFile;
-        end;
-      end; { if (NewFile^.FileName < FilePtr^.FileName) }
+          { Move on to the next file in the list. }
+          FilePtr := NextPtr;
+        end; { if (NewFile^.FileName < NextPtr^.FileName) }
+      end; { if (FilePtr^.NextFile = Nil) }
     end; { While (FilePtr <> Nil) }
-  end;
+  end; { if (FileList = Nil) }
 end; { Procedure AddFile }
 
 { Get a file entry from Bdos. }
@@ -144,7 +148,6 @@ begin
     { Create the next file entry. }
     New(NewFile);
     with NewFile^ do begin
-      { The user number. }
       UserNumber := DMA[FirstByte];;
 
       { Get the file name. }
@@ -157,7 +160,6 @@ begin
       for LoopIdx := 9 to 11 do
         FileName[Succ(LoopIdx)] := Chr(DMA[FirstByte + LoopIdx]);
 
-      { Clear the list pointers. }
       NextFile := Nil;
 
       if (DEBUG_GetFile) then begin
@@ -179,7 +181,7 @@ var
 
 begin
   { Initialize the list of files. }
-  Files := Nil;
+  FileList := Nil;
 
   { Get files as long as there are more to retrive. }
   BdosFunction := SEARCH_FIRST;
@@ -198,7 +200,7 @@ var
   FilePtr : FileRecord_Ptr;
 
 begin
-  FilePtr := Files;
+  FilePtr := FileList;
   While (FilePtr <> Nil) do begin
     with FilePtr^ do begin
       WriteLn('File Name: ', FileName, ' (', UserNumber, ')');
