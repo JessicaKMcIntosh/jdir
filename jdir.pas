@@ -38,10 +38,10 @@ type
   FileRecord_Ptr    = ^FileRecord;
   FileRecord =
     record
-      FileName   : Str12;          { File Name }
-      UserNumber : Integer;        { User Number }
-      FileSize   : Integer;        { File size in KiloBytes }
-      NextFile   : FileRecord_Ptr; { Next file pointer }
+      FileName    : Str12;          { File Name }
+      UserNumber  : Integer;        { User Number }
+      FileSize    : Integer;        { File size in KiloBytes }
+      NextFile    : FileRecord_Ptr; { Next file pointer }
     end;
   AnyFCB            = Array[0..25] of Byte;
   AnyDMA            = Array[0..127] of Byte;
@@ -50,6 +50,7 @@ var
   DMA               : AnyDMA;
   FCB               : AnyFCB absolute $005C;
   FileList          : FileRecord_Ptr;
+  NumberFiles       : Integer;
   scratch           : String[255];
 
 
@@ -83,7 +84,6 @@ end;
 
 { Add a file to the existing list of files. }
 { The files are sorte by name. }
-{ TODO: This is messy. }
 { NOTE: This is using a simple insertion sort. }
 Procedure AddFile(var NewFile : FileRecord_Ptr);
 var
@@ -146,6 +146,7 @@ begin
     FirstByte := BdosReturn * 32;
 
     { Create the next file entry. }
+    NumberFiles := NumberFiles + 1;
     New(NewFile);
     with NewFile^ do begin
       UserNumber := DMA[FirstByte];;
@@ -182,6 +183,7 @@ var
 begin
   { Initialize the list of files. }
   FileList := Nil;
+  NumberFiles := 0;
 
   { Get files as long as there are more to retrive. }
   BdosFunction := SEARCH_FIRST;
@@ -197,16 +199,24 @@ end; { Procedure GetFileList }
 { Print out the files that have been found. }
 Procedure PrintFiles;
 var
-  FilePtr : FileRecord_Ptr;
+  FilePtr   : FileRecord_Ptr;
+
+  rows      : Integer;
 
 begin
   FilePtr := FileList;
   While (FilePtr <> Nil) do begin
     with FilePtr^ do begin
-      WriteLn('File Name: ', FileName, ' (', UserNumber, ')');
+      WriteLn('File Name: ', FileName);
       FilePtr := NextFile;
     end; { with FilePtr^ }
   end; { While (FilePtr <> Nil) }
+
+
+  Rows := NumberFiles div 4;
+  if ((NumberFiles mod Rows) > 0) then
+    Rows := Rows + 1;
+
 end; { Procedure PrintFiles }
 
 
@@ -216,4 +226,5 @@ begin
 
   GetFileList;
   PrintFiles;
+  Writeln('Found ', NumberFiles, ' files.');
 end. { of program JDIR }
