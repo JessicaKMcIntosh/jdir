@@ -4,8 +4,11 @@ program JDIR;
 {
 
 Jessica's Directory
-2020-04-03 Version 0.1 First working output.
-2020-04-04 Version 0.2 File list is sorted.
+2020-04-03 First working output.
+2020-04-04 File list is sorted.
+2020-07-11 Reorganized variables and types.
+           File size is now calculated correctly.
+           Output in columns order by row, PrintFilesRow.
 
 Learning Turbo Pascal and CP/M programming.
 
@@ -13,9 +16,7 @@ This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS and
 SORTDIR.PAS found on the Walnut Creek CDOM.
 
 TODO:
-  Output files in columns.
   Allow search patterns to be passed on the command line.
-  Get the size of each file.
   Add an option to list system files.
   Configurable number of rows for pagination.
   Option for no pagination.
@@ -238,30 +239,36 @@ begin
 
 end; { Procedure GetFileList }
 
-{ Print out the files that have been found. }
-Procedure PrintFiles;
+{ Print out the files that have been found by row. }
+Procedure PrintFilesRow;
 var
-  FilePtr   : FileRecord_Ptr;
-  Rows      : Integer;
+  FilePtr     : FileRecord_Ptr;
+  Column      : Integer;
+  TotalKBytes : Integer;
 
 begin
   FilePtr := FileList;
+  Column := 0;
+  TotalKBytes := 0;
+
   While (FilePtr <> Nil) do begin
     with FilePtr^ do begin
-      WriteLn('File Name: ', FileName, ' (', FileSize, 'k)');
+      Write(FileName, '', FileSize:4, 'k ');
+      TotalKBytes := TotalKBytes + FileSize;
       FilePtr := NextFile;
+
+      { Check the column currently on. }
+      Column := Succ(Column);
+      if ((Column mod 4) = 0) then
+        WriteLn
+      else
+        Write('| ');
     end; { with FilePtr^ }
   end; { While (FilePtr <> Nil) }
 
-
-{
-  Rows := NumberFiles div 4;
-  if ((NumberFiles mod Rows) > 0) then
-    Rows := Succ(Rows);
-}
-
-  Writeln('Found ', NumberFiles, ' files.');
-
+  if ((Column mod 4) <> 0) then
+    WriteLn;
+  Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
 end; { Procedure PrintFiles }
 
 
@@ -270,8 +277,12 @@ begin
   InitFCB;
 
   BlockSize := GetBlockSize;
-  if (BlockSize = 0) then
-    BlockSize := 1;
+  { CPM for OS X does not set the block size. }
+  if (BlockSize = 0) then BlockSize := 1;
+
   GetFileList;
-  PrintFiles;
+  if (NumberFiles = 0) then
+    WriteLn('No files found.')
+  else
+    PrintFilesRow;
 end. { of program JDIR }
