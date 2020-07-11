@@ -45,6 +45,7 @@ type
       FileName    : String[12];
       UserNumber  : Byte;
       FileSize    : Integer;
+      Records     : Integer;
       NextFile    : FileRecord_Ptr;
     end;
   FCBDIR = { This is the format used for FCB and Directory Records. }
@@ -59,17 +60,17 @@ type
     end;
   DiskParmBlock =
     record
-	    SectorsPerTrack	: Integer;  { Number of 128-byte records per track }
-	    BlockShift	    : Byte;     { Block shift. }
-	    BlockBask	      : Byte;     { Block mask. }
-	    ExtentMasl	    : Byte;     { Extent mask, see later }
-	    BlocksOnDisk	  : Integer;  { (no. of blocks on the disc)-1 }
-	    DirOnDisk	      : Integer;  { (no. of directory entries)-1 }
-	    Allocation0	    : Byte;     { Directory allocation bitmap, first byte }
-	    Allocation1	    : Byte;     { Directory allocation bitmap, second byte }
-	    ChecksumSize	  : Integer;  { Checksum vector size, 0 for a fixed disc }
-	    		                        { ;No. directory entries/4, rounded up. }
-	    ReservedTracks	: Integer;  { Offset, number of reserved tracks }
+      SecorsPerTrack  : Integer; { spt - Number of 128-byte records per track }
+      BlockShift      : Byte;    { bsh - Block shift. }
+      BlockMask       : Byte;    { blm - Block mask. }
+      ExtentMasl      : Byte;    { exm - Extent mask, see later }
+      BlocksOnDisk    : Integer; { dsm - (no. of blocks on the disc)-1 }
+      DirOnDisk       : Integer; { drm - (no. of directory entries)-1 }
+      Allocation0     : Byte;    { al0 - Directory allocation bitmap, first byte }
+      Allocation1     : Byte;    { al1 - Directory allocation bitmap, second byte }
+      ChecksumSize    : Integer; { cks - Checksum vector size, 0 for a fixed disc }
+                                 { ;No. directory entries/4, rounded up. }
+      ReservedTracks  : Integer; { off - Offset, number of reserved tracks }
     end;
 
 var
@@ -78,6 +79,7 @@ var
   FileList          : FileRecord_Ptr;
   NumberFiles       : Integer;
   scratch           : String[255];
+  BlockSize         : Byte;
 
 
 { Initialize Bdos DMA access. }
@@ -114,6 +116,22 @@ begin
     FCB.Allocation[LoopIdx] := 0;
 end;
 
+{ Get the currently logged disk. }
+{ Returns the drive number. A = 0, B = 1 ... }
+Function GetDisk : Byte;
+begin
+  GetDisk := Bdos(BDOS_CURRENT_DRIVE);
+end;
+
+{ Get the block size for the currently logged disk. }
+Function GetBlockSize : Byte;
+var
+  DiskParmBlock_Ptr : ^DiskParmBlock;
+begin
+  DiskParmBlock_Ptr := Ptr(BdosHL(BDOS_DISK_PARM));
+  GetBlockSize := Succ(DiskParmBlock_Ptr^.BlockMask) shr 3;
+end;
+
 { Add a file to the existing list of files. }
 { The files are sorte by name. }
 { NOTE: This is using a simple insertion sort. }
@@ -123,9 +141,10 @@ var
   PrevPtr : FileRecord_Ptr;
 
 begin
-  if (FileList = Nil) then
-    FileList := NewFile
-  else begin
+  if (FileList = Nil) then begin
+    FileList := NewFile;
+    NumberFiles := 1;
+  end else begin
     PrevPtr := Nil;
     FilePtr := FileList;
     while ((FilePtr <> Nil) and (FilePtr^.FileName < NewFile^.FileName)) do
@@ -152,13 +171,17 @@ var
   FirstByte         : Byte;
   BdosReturn        : Byte;
   NewFile           : FileRecord_Ptr;
+  Blocks            : Integer;
+  BlockDivisor      : Integer;
+  FileSize          : Integer;
+  FileRecords       : Integer;
 
 begin
   BdosReturn := Bdos(BdosFunction, Addr(FCB));
   if (DEBUG_Bdos) then
     WriteLn('GetFile Bdos Return: ', BdosReturn);
 
-  if (BdosReturn <> SEARCH_LAST) then begin
+  if (BdosReturn <> BDOS_SEARCH_LAST) then begin
     { First byte of the file name in memory. }
     FirstByte := BdosReturn * 32;
 
@@ -166,11 +189,21 @@ begin
     New(NewFile);
     with DMA[BdosReturn] do begin
       NewFile^.UserNumber := Number;
+
       Number := 11; { Used for the file name length. }
       move(Number, NewFile^.FileName, 12);
       insert('.', NewFile^.FileName, 9);
+
       NewFile^.NextFile := Nil;
-      NewFile^.FileSize := Records;
+
+      FileRecords := Records + ((Extent + (S2 shl 5)) shl 7);
+      BlockDivisor := BlockSize shl 3;
+      Blocks := FileRecords div BlockDivisor;
+      FileSize := Blocks * BlockSize;
+      if ((FileRecords mod BlockDivisor) <> 0) then
+        FileSize := FileSize + BlockSize;
+      NewFile^.Records := FileRecords;
+      NewFile^.FileSize := FileSize;
 
       if (DEBUG_GetFile) then begin
         WriteLn('User Number: ', Number);
@@ -180,7 +213,7 @@ begin
 
     { Add this file to the list. }
     AddFile(NewFile);
-  end; { if (Get_File <> SEARCH_LAST) }
+  end; { if (Get_File <> BDOS_SEARCH_LAST) }
   GetFile := BdosReturn;
 end; { Function GetFile }
 
@@ -201,7 +234,7 @@ begin
     if (DEBUG_GetFile) then
         WriteLn('GetFile Return: ', BdosReturn);
     BdosFunction := BDOS_SEARCH_NEXT;
-  Until BdosReturn = SEARCH_LAST;
+  Until BdosReturn = BDOS_SEARCH_LAST;
 
 end; { Procedure GetFileList }
 
@@ -215,7 +248,7 @@ begin
   FilePtr := FileList;
   While (FilePtr <> Nil) do begin
     with FilePtr^ do begin
-      WriteLn('File Name: ', FileName, ' (', FileSize, ')');
+      WriteLn('File Name: ', FileName, ' (', FileSize, 'k)');
       FilePtr := NextFile;
     end; { with FilePtr^ }
   end; { While (FilePtr <> Nil) }
@@ -227,6 +260,7 @@ begin
     Rows := Succ(Rows);
 }
 
+  Writeln('Found ', NumberFiles, ' files.');
 
 end; { Procedure PrintFiles }
 
@@ -235,7 +269,9 @@ begin
   InitDMA;
   InitFCB;
 
+  BlockSize := GetBlockSize;
+  if (BlockSize = 0) then
+    BlockSize := 1;
   GetFileList;
   PrintFiles;
-  Writeln('Found ', NumberFiles, ' files.');
 end. { of program JDIR }
