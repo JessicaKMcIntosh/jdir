@@ -10,11 +10,13 @@ Jessica's Directory
            File size is now calculated correctly.
            Output in columns order by row, PrintFilesRow.
            Output in columns order by column, PrintFilesColumn.
+           Made output format configurable.
+           Added Pagination of output.
 
 Learning Turbo Pascal and CP/M programming.
 
-This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS and
-SORTDIR.PAS found on the Walnut Creek CDOM.
+This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS along
+the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
 
 TODO:
   Allow search patterns to be passed on the command line.
@@ -25,6 +27,11 @@ TODO:
 }
 
 const
+  { Configuration }
+  OUTPUT_BY_COLUMN      = False; { True output by column, False by row. }
+  PAGE_SIZE             = 22;   { Number of rows per-page. }
+                                { Set to 0 for no pagination. }
+
   { Bdos Functions. }
   BDOS_SET_DRIVE        = $0E; { DRV_SET  - Set the current drive. }
   BDOS_SEARCH_FIRST     = $11; { F_SFIRST - search for first file. }
@@ -65,12 +72,12 @@ type
       SecorsPerTrack  : Integer; { spt - Number of 128-byte records per track }
       BlockShift      : Byte;    { bsh - Block shift. }
       BlockMask       : Byte;    { blm - Block mask. }
-      ExtentMasl      : Byte;    { exm - Extent mask, see later }
+      ExtentMask      : Byte;    { exm - Extent mask, see later }
       BlocksOnDisk    : Integer; { dsm - (no. of blocks on the disc)-1 }
       DirOnDisk       : Integer; { drm - (no. of directory entries)-1 }
-      Allocation0     : Byte;    { al0 - Directory allocation bitmap, first byte }
-      Allocation1     : Byte;    { al1 - Directory allocation bitmap, second byte }
-      ChecksumSize    : Integer; { cks - Checksum vector size, 0 for a fixed disc }
+      Allocation0     : Byte;    { al0 - Directory allocation bitmap, first }
+      Allocation1     : Byte;    { al1 - Directory allocation bitmap, second }
+      ChecksumSize    : Integer; { cks - Checksum vector size }
                                  { ;No. directory entries/4, rounded up. }
       ReservedTracks  : Integer; { off - Offset, number of reserved tracks }
     end;
@@ -96,16 +103,12 @@ end; { Procedure InitDMA }
 
 { Initialize the FCB used to search for files. }
 Procedure InitFCB;
-var
-  LoopIdx           : Byte;
-
 begin
   { Set the disk to Default. }
   FCB.Number := 0;
 
   { Set the file name and type to all '?'. }
-  for LoopIdx := 1 to 11 do
-    FCB.FileName[LoopIdx] :=  ord('?');
+  FillChar(FCB.FileName, 11, ord('?'));
 
   { Set Extent, S1 and S2 to '?' as well. }
   FCB.Extent := ord('?');
@@ -114,8 +117,7 @@ begin
 
   { Set everything else to 0. }
   FCB.Records := 0;
-  for LoopIdx := 0 to 15 do
-    FCB.Allocation[LoopIdx] := 0;
+  FillChar(FCB.Allocation, 16, 0);
 end; { Procedure InitFCB }
 
 { Get the currently logged disk. }
@@ -168,7 +170,6 @@ end; { Procedure AddFile }
 
 { Get a file entry from Bdos. }
 Function GetFile(BdosFunction  : Byte) : byte;
-
 var
   FirstByte         : Byte;
   BdosReturn        : Byte;
@@ -240,16 +241,28 @@ begin
 
 end; { Procedure GetFileList }
 
+{ Prompts the user to press any key. }
+Procedure PromptAnyKey;
+var
+  Character   : Char;
+begin
+  Write('Pres any key to continue...');
+  Read(Kbd, Character);
+  WriteLn;
+end;
+
 { Print out the files that have been found by row. }
 Procedure PrintFilesRow;
 var
   FilePtr     : FileRecord_Ptr;
-  Column      : Integer;
   TotalKBytes : Integer;
+  Column      : Integer;
+  Row         : Integer;
 
 begin
   FilePtr := FileList;
   Column := 0;
+  Row := 1;
   TotalKBytes := 0;
 
   While (FilePtr <> Nil) do begin
@@ -260,11 +273,17 @@ begin
 
       { Check the column currently on. }
       Column := Succ(Column);
-      if ((Column mod 4) = 0) then
-        WriteLn
-      else
+      if (Column = 4) then begin
+        WriteLn;
+        Column := 0;
+        Row := Succ(Row);
+      end else
         Write('| ');
     end; { with FilePtr^ }
+    if ((PAGE_SIZE > 0) and ((Row mod PAGE_SIZE) = 0)) then begin
+      PromptAnyKey;
+      Row := Succ(Row);
+    end;
   end; { While (FilePtr <> Nil) }
 
   if ((Column mod 4) <> 0) then
@@ -277,20 +296,22 @@ end; { Procedure PrintFiles }
 Procedure PrintFilesColumn;
 var
   FilePtr     : FileRecord_Ptr;
+  TotalKBytes : Integer;
   Columns     : array[0..3] of FileRecord_Ptr;
   Column      : Byte;
-  TotalKBytes : Integer;
   Rows        : Integer;
   Row         : Integer;
 
 begin
+  FilePtr := FileList;
+  TotalKBytes := 0;
+
   { Calculate the number of rows. }
   Rows := NumberFiles div 4;
   if ((NumberFiles mod 4) <> 0) then
     Rows := Succ(Rows);
 
   { Set the pointer for each column. }
-  FilePtr := FileList;
   Columns[0] := FilePtr;
   for Column := 1 to 3 do begin
     for Row := 1 to Rows do
@@ -311,6 +332,9 @@ begin
         Write('| ');
     end; { for Column := 0 to 3 }
     WriteLn;
+    if ((PAGE_SIZE > 0) and ((Row mod PAGE_SIZE) = 0)) then begin
+      PromptAnyKey;
+    end;
   end; { for Row := 1 to Rows }
 
   Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
@@ -327,8 +351,8 @@ begin
   GetFileList;
   if (NumberFiles = 0) then
     WriteLn('No files found.')
-  else begin
+  else if (OUTPUT_BY_COLUMN) then
+    PrintFilesColumn
+  else
     PrintFilesRow;
-    PrintFilesColumn;
-  end;
-end. { of program JDIR }
+end. { Program JDIR }
