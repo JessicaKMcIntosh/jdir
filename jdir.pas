@@ -9,6 +9,7 @@ Jessica's Directory
 2020-07-11 Reorganized variables and types.
            File size is now calculated correctly.
            Output in columns order by row, PrintFilesRow.
+           Output in columns order by column, PrintFilesColumn.
 
 Learning Turbo Pascal and CP/M programming.
 
@@ -91,7 +92,7 @@ begin
   BdosReturn := Bdos(BDOS_SET_DMA, Addr(DMA));
   if (DEBUG_Bdos) then
       WriteLn('Set DMA Return: ', BdosReturn);
-end;
+end; { Procedure InitDMA }
 
 { Initialize the FCB used to search for files. }
 Procedure InitFCB;
@@ -115,14 +116,14 @@ begin
   FCB.Records := 0;
   for LoopIdx := 0 to 15 do
     FCB.Allocation[LoopIdx] := 0;
-end;
+end; { Procedure InitFCB }
 
 { Get the currently logged disk. }
 { Returns the drive number. A = 0, B = 1 ... }
 Function GetDisk : Byte;
 begin
   GetDisk := Bdos(BDOS_CURRENT_DRIVE);
-end;
+end; { Function GetDisk }
 
 { Get the block size for the currently logged disk. }
 Function GetBlockSize : Byte;
@@ -131,7 +132,7 @@ var
 begin
   DiskParmBlock_Ptr := Ptr(BdosHL(BDOS_DISK_PARM));
   GetBlockSize := Succ(DiskParmBlock_Ptr^.BlockMask) shr 3;
-end;
+end; { Function GetBlockSize }
 
 { Add a file to the existing list of files. }
 { The files are sorte by name. }
@@ -268,9 +269,52 @@ begin
 
   if ((Column mod 4) <> 0) then
     WriteLn;
+
   Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
 end; { Procedure PrintFiles }
 
+{ Print out the files that have been found by Column. }
+Procedure PrintFilesColumn;
+var
+  FilePtr     : FileRecord_Ptr;
+  Columns     : array[0..3] of FileRecord_Ptr;
+  Column      : Byte;
+  TotalKBytes : Integer;
+  Rows        : Integer;
+  Row         : Integer;
+
+begin
+  { Calculate the number of rows. }
+  Rows := NumberFiles div 4;
+  if ((NumberFiles mod 4) <> 0) then
+    Rows := Succ(Rows);
+
+  { Set the pointer for each column. }
+  FilePtr := FileList;
+  Columns[0] := FilePtr;
+  for Column := 1 to 3 do begin
+    for Row := 1 to Rows do
+      FilePtr := FilePtr^.NextFile;
+    Columns[Column] := FilePtr;
+  end;
+
+  { Write out the rows. }
+  for Row := 1 to Rows do begin
+    for Column := 0 to 3 do begin
+      if (Columns[Column] <> Nil) then
+        with Columns[Column]^ do begin
+          Write(FileName, '', FileSize:4, 'k ');
+          TotalKBytes := TotalKBytes + FileSize;
+          Columns[Column] := NextFile;
+        end;
+      if (Column < 3) then
+        Write('| ');
+    end; { for Column := 0 to 3 }
+    WriteLn;
+  end; { for Row := 1 to Rows }
+
+  Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
+end; { Procedure PrintFilesColumn }
 
 begin
   InitDMA;
@@ -283,6 +327,8 @@ begin
   GetFileList;
   if (NumberFiles = 0) then
     WriteLn('No files found.')
-  else
+  else begin
     PrintFilesRow;
+    PrintFilesColumn;
+  end;
 end. { of program JDIR }
