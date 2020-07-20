@@ -12,6 +12,7 @@ Jessica's Directory
            Output in columns order by column, PrintFilesColumn.
            Made output format configurable.
            Added Pagination of output.
+2020-07-19 Use a pattern given on the command line.
 
 Learning Turbo Pascal and CP/M programming.
 
@@ -19,16 +20,15 @@ This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS along
 the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
 
 TODO:
-  Allow search patterns to be passed on the command line.
   Add an option to list system files.
   Configurable number of rows for pagination.
   Option for no pagination.
-
+  Make the command line parameter handle drive and user.
 }
 
 const
   { Configuration }
-  OUTPUT_BY_COLUMN      = False; { True output by column, False by row. }
+  OUTPUT_BY_COLUMN      = True; { True output by column, False by row. }
   PAGE_SIZE             = 22;   { Number of rows per-page. }
                                 { Set to 0 for no pagination. }
 
@@ -44,10 +44,12 @@ const
   BDOS_SEARCH_LAST      = $FF; { No more files found on Bdos search. }
 
   { Debug Flags }
-  DEBUG_GetFile     = False; { DEBUG - Print debug information for GetFile. }
-  DEBUG_Bdos        = False; { DEBUG - Print debug information for Bdos calls. }
+  DEBUG_GetFile     = False; { Print debug information for GetFile. }
+  DEBUG_Bdos        = False; { Print debug information for Bdos calls. }
+  DEBUG_Parms       = False; { Print debug when processing the parameters. }
 
 type
+  String12          = String[12];
   FileRecord_Ptr    = ^FileRecord;
   FileRecord =
     record
@@ -101,7 +103,7 @@ begin
       WriteLn('Set DMA Return: ', BdosReturn);
 end; { Procedure InitDMA }
 
-{ Initialize the FCB used to search for files. }
+{ Initialize the FCB used to search for all files. }
 Procedure InitFCB;
 begin
   { Set the disk to Default. }
@@ -119,6 +121,85 @@ begin
   FCB.Records := 0;
   FillChar(FCB.Allocation, 16, 0);
 end; { Procedure InitFCB }
+
+{ Padd a string to Padlength with PaddChar. }
+{ If the string is longer than PaddLength it is truncated. }
+Function PaddStr(
+  InputStr    : String12;
+  PaddChar    : Char;
+  PaddLength  : Byte
+) : String12;
+var
+  OutputStr : String12;
+  Index     : Byte;
+begin
+  OutputStr := InputStr;
+  if (Length(InputStr) < PaddLength) then begin
+    for Index := (Length(InputStr) + 1) to PaddLength do
+      Insert(PaddChar, OutputStr, Index);
+  end;
+  OutputStr[0] := Chr(PaddLength);
+  PaddStr := OutputStr;
+end;
+
+{ Update the FCB with a pattern from the command line. }
+Procedure UpdateFCB(ParamNum : Integer);
+var
+  Parameter   : String12;
+  Disk        : Char;
+  User        : Byte;
+  FileName    : String[8];
+  FileType    : String[3];
+  Index       : Byte;
+begin
+  Parameter := ParamStr(ParamNum);
+  FileName := '';
+  FileType := '';
+
+  if (DEBUG_Parms) then
+    WriteLn('Parameter: >', Parameter, '<');
+
+  { Extract a file pattern from the parameter. }
+  { The FCB is already setup to fetch all files so skip '*' and '*.*'. }
+  if ((Parameter <> '*') and (Parameter <> '*.*')) then begin
+    Index := Pos('.', Parameter);
+    { If there is a '.' then get the file type. }
+    if (Index > 0) then begin
+      FileName := Copy(Parameter, 1, (Index - 1));
+      FileType := Copy(Parameter, (Index + 1), Length(Parameter));
+    end else begin
+      FileName := Parameter;
+    end;
+
+    { Cleanup the FileName. }
+    Index := Pos('*', FileName);
+    if (Index <> 0) then
+      FileName := PaddStr(Copy(FileName, 1, (Index - 1)), '?', 8)
+    else
+      FileName := PaddStr(FileName, ' ', 8);
+
+    { Cleanup the FileType. }
+    Index := Pos('*', FileType);
+    if (Index <> 0) then
+      FileType := PaddStr(Copy(FileType, 1, (Index - 1)), '?', 8)
+    else if (length(FileType) > 0) then
+      FileType := PaddStr(FileType, ' ', 8);
+
+    { Copy the FileName and FileType to the FCB. }
+    for Index := 1 to Length(FileName) do
+      FCB.FileName[Index] := Ord(Upcase(FileName[Index]));
+    for Index := 1 to Length(Filetype) do
+      FCB.FileName[Index + 8] := Ord(Upcase(FileType[Index]));
+
+    if (DEBUG_Parms) then begin
+      WriteLn('File Name: >', FileName, '< Type: >', FileType, '<');
+      Write('FCB File Name: >');
+      for Index := 1 to 11 do
+        Write(Chr(FCB.FileName[Index]));
+      WriteLn('<');
+    end;
+  end; { if ((Parameter <> '*') and (Parameter <> '*.*')) }
+end;
 
 { Get the currently logged disk. }
 { Returns the drive number. A = 0, B = 1 ... }
@@ -146,17 +227,20 @@ var
 
 begin
   if (FileList = Nil) then begin
+    { This is the first file. }
     FileList := NewFile;
     NumberFiles := 1;
   end else begin
     PrevPtr := Nil;
     FilePtr := FileList;
+    { Find where this file belongs. }
     while ((FilePtr <> Nil) and (FilePtr^.FileName < NewFile^.FileName)) do
     begin
       PrevPtr := FilePtr;
       FilePtr := FilePtr^.NextFile;
     end;
     if (FilePtr^.FileName <> NewFile^.FileName) then begin
+      { Add the file to the list. }
       NewFile^.NextFile := FilePtr;
       NumberFiles := Succ(NumberFiles);
       if (PrevPtr = Nil) then
@@ -164,6 +248,7 @@ begin
       else
         PrevPtr^.NextFile := NewFile;
     end else if (FilePtr^.FileSize < NewFile^.FileSize) then
+      { This is not a new file, it's another directory entry. }
       FilePtr^.FileSize := NewFile^.FileSize;
   end; { if (FileList = Nil) }
 end; { Procedure AddFile }
@@ -199,6 +284,8 @@ begin
 
       NewFile^.NextFile := Nil;
 
+      { Calculate the file size. }
+      { NOTE: This is messy, there has to be a better way. }
       FileRecords := Records + ((Extent + (S2 shl 5)) shl 7);
       BlockDivisor := BlockSize shl 3;
       Blocks := FileRecords div BlockDivisor;
@@ -344,6 +431,10 @@ begin
   InitDMA;
   InitFCB;
 
+  { Check if there is a parameter. }
+  if (ParamCount >= 1) then
+    UpdateFCB(1);
+
   BlockSize := GetBlockSize;
   { CPM for OS X does not set the block size. }
   if (BlockSize = 0) then BlockSize := 1;
@@ -351,7 +442,7 @@ begin
   GetFileList;
   if (NumberFiles = 0) then
     WriteLn('No files found.')
-  else if (OUTPUT_BY_COLUMN) then
+  else if (OUTPUT_BY_COLUMN and (NumberFiles > 4)) then
     PrintFilesColumn
   else
     PrintFilesRow;
