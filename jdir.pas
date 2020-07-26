@@ -31,6 +31,7 @@ const
   OUTPUT_BY_COLUMN      = True; { True output by column, False by row. }
   PAGE_SIZE             = 22;   { Number of rows per-page. }
                                 { Set to 0 for no pagination. }
+  PARAM_LENGTH          = 32;   { Maximum length of the parameter string. }
 
   { Bdos Functions. }
   BDOS_SET_DRIVE        = $0E; { DRV_SET  - Set the current drive. }
@@ -49,7 +50,7 @@ const
   DEBUG_Parms       = False; { Print debug when processing the parameters. }
 
 type
-  String12          = String[12];
+  ParamString       = String[PARAM_LENGTH];
   FileRecord_Ptr    = ^FileRecord;
   FileRecord =
     record
@@ -125,12 +126,12 @@ end; { Procedure InitFCB }
 { Padd a string to Padlength with PaddChar. }
 { If the string is longer than PaddLength it is truncated. }
 Function PaddStr(
-  InputStr    : String12;
+  InputStr    : ParamString;
   PaddChar    : Char;
   PaddLength  : Byte
-) : String12;
+) : ParamString;
 var
-  OutputStr : String12;
+  OutputStr : ParamString;
   Index     : Byte;
 begin
   OutputStr := InputStr;
@@ -145,7 +146,7 @@ end;
 { Update the FCB with a pattern from the command line. }
 Procedure UpdateFCB(ParamNum : Integer);
 var
-  Parameter   : String12;
+  Parameter   : ParamString;
   Disk        : Char;
   User        : Byte;
   FileName    : String[8];
@@ -153,11 +154,23 @@ var
   Index       : Byte;
 begin
   Parameter := ParamStr(ParamNum);
-  FileName := '';
-  FileType := '';
+  FileName  := '';
+  FileType  := '';
+  Disk      := ' ';
+  User      := 0;
 
   if (DEBUG_Parms) then
     WriteLn('Parameter: >', Parameter, '<');
+
+  { Check for a Disk and/or User. }
+  Index := Pos(':', Parameter);
+  if (Index <> 0) then begin
+    Disk := Copy(Parameter, 1, 1);
+    Disk := Upcase(Disk);
+    if (Disk in ['A'..'P']) then
+      FCB.Number := Ord(Disk) - $40;
+    Delete(Parameter, 1, Index);
+  end; { if (Index <> 0) }
 
   { Extract a file pattern from the parameter. }
   { The FCB is already setup to fetch all files so skip '*' and '*.*'. }
