@@ -24,6 +24,14 @@ TODO:
   Add an option to list system files.
   Configurable number of rows for pagination.
   Option for no pagination.
+
+  Command line options:
+    -1 Display files in one column.
+    -a Display all files, including system files.
+    -l Synonymous with -1.
+    -n Do not paginate output.
+    -s Display records instead of size in k.
+    -x Display the file columns across rather than down.
 }
 
 const
@@ -93,7 +101,6 @@ var
   NumberFiles       : Integer;
   scratch           : String[255];
   BlockSize         : Byte;
-
 
 { Initialize Bdos DMA access. }
 Procedure InitDMA;
@@ -173,14 +180,19 @@ begin
   { Check for a Disk and/or User. }
   Index := Pos(':', Parameter);
   if (Index <> 0) then begin
-    Disk := Copy(Parameter, 1, 1);
-    Disk := Upcase(Disk);
+    { Check for the Disk letter. }
+    Disk := Upcase(Copy(Parameter, 1, 1));
     if (Disk in ['A'..'P']) then begin
-      WriteLn('Parameter Disk: ', Disk);
       FCB.Number := Ord(Disk) - $40;
+      { Delete the Disk letter. }
       Delete(Parameter, 1, 1);
       Index := Index - 1;
+      if (DEBUG_Parms) then
+        WriteLn('Parameter Disk: ', Disk);
     end;
+
+    { Anything left will the the User number. }
+    { I can't use Val since it messes with FCB. }
     if (Index > 1) then begin
       User := Ord(Copy(Parameter, 1, 1)) - $30;
       if (Index > 2) then
@@ -193,11 +205,13 @@ begin
       WriteLn('New Parameter: >', Parameter, '<');
   end; { if (Index <> 0) }
 
-  writeln('Parameter: >', Parameter, '< User: ', User);
+  if (DEBUG_Parms) then
+    writeln('Parameter: >', Parameter, '< User: ', User);
 
   { Extract a file pattern from the parameter. }
   { The FCB is already setup to fetch all files so skip '*' and '*.*'. }
-  if ((Parameter <> '*') and (Parameter <> '*.*') and (Parameter <> '' )) then begin
+  if ((Parameter <> '*') and (Parameter <> '*.*') and (Parameter <> '' )) then
+  begin
     Index := Pos('.', Parameter);
     { If there is a '.' then get the file type. }
     if (Index > 0) then begin
@@ -216,9 +230,9 @@ begin
     { Cleanup the FileType. }
     Index := Pos('*', FileType);
     if (Index <> 0) then
-      FileType := PaddStr(Copy(FileType, 1, (Index - 1)), '?', 8)
+      FileType := PaddStr(Copy(FileType, 1, (Index - 1)), '?', 3)
     else if (length(FileType) > 0) then
-      FileType := PaddStr(FileType, ' ', 8);
+      FileType := PaddStr(FileType, ' ', 3);
 
     { Copy the FileName and FileType to the FCB. }
     for Index := 1 to Length(FileName) do
