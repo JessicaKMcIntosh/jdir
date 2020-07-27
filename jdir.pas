@@ -13,6 +13,7 @@ Jessica's Directory
            Made output format configurable.
            Added Pagination of output.
 2020-07-19 Use a pattern given on the command line.
+2020-07-26 The pattern can specify the disk and/or user.
 
 Learning Turbo Pascal and CP/M programming.
 
@@ -23,7 +24,6 @@ TODO:
   Add an option to list system files.
   Configurable number of rows for pagination.
   Option for no pagination.
-  Make the command line parameter handle drive and user.
 }
 
 const
@@ -38,6 +38,7 @@ const
   BDOS_SEARCH_FIRST     = $11; { F_SFIRST - search for first file. }
   BDOS_SEARCH_NEXT      = $12; { F_SNEXT  - search for next file. }
   BDOS_CURRENT_DRIVE    = $19; { DRV_GET  - Get current drive. }
+  BDOS_GET_SET_USER     = $20; { Get or set the current user. }
   BDOS_SET_DMA          = $1A; { F_DMAOFF - Set DMA Address function number. }
   BDOS_DISK_PARM        = $1F; { DRV_DPB  - Get the Disk Parameter Address. }
 
@@ -143,12 +144,20 @@ begin
   PaddStr := OutputStr;
 end;
 
+{ Set the current user. }
+Procedure SetUser(User: Integer);
+begin
+  if (DEBUG_Parms) then
+    WriteLn('Switching to User: ', User);
+  Bdos(BDOS_GET_SET_USER, User);
+end;
+
 { Update the FCB with a pattern from the command line. }
 Procedure UpdateFCB(ParamNum : Integer);
 var
   Parameter   : ParamString;
   Disk        : Char;
-  User        : Byte;
+  User        : Integer;
   FileName    : String[8];
   FileType    : String[3];
   Index       : Byte;
@@ -157,7 +166,6 @@ begin
   FileName  := '';
   FileType  := '';
   Disk      := ' ';
-  User      := 0;
 
   if (DEBUG_Parms) then
     WriteLn('Parameter: >', Parameter, '<');
@@ -167,22 +175,36 @@ begin
   if (Index <> 0) then begin
     Disk := Copy(Parameter, 1, 1);
     Disk := Upcase(Disk);
-    if (Disk in ['A'..'P']) then
+    if (Disk in ['A'..'P']) then begin
+      WriteLn('Parameter Disk: ', Disk);
       FCB.Number := Ord(Disk) - $40;
+      Delete(Parameter, 1, 1);
+      Index := Index - 1;
+    end;
+    if (Index > 1) then begin
+      User := Ord(Copy(Parameter, 1, 1)) - $30;
+      if (Index > 2) then
+        User := (User * 10) + Ord(Copy(Parameter, 2, 1)) - $30;
+      if (User < 16) then
+        SetUser(User);
+    end;
     Delete(Parameter, 1, Index);
+    if (DEBUG_Parms) then
+      WriteLn('New Parameter: >', Parameter, '<');
   end; { if (Index <> 0) }
+
+  writeln('Parameter: >', Parameter, '< User: ', User);
 
   { Extract a file pattern from the parameter. }
   { The FCB is already setup to fetch all files so skip '*' and '*.*'. }
-  if ((Parameter <> '*') and (Parameter <> '*.*')) then begin
+  if ((Parameter <> '*') and (Parameter <> '*.*') and (Parameter <> '' )) then begin
     Index := Pos('.', Parameter);
     { If there is a '.' then get the file type. }
     if (Index > 0) then begin
       FileName := Copy(Parameter, 1, (Index - 1));
       FileType := Copy(Parameter, (Index + 1), Length(Parameter));
-    end else begin
+    end else
       FileName := Parameter;
-    end;
 
     { Cleanup the FileName. }
     Index := Pos('*', FileName);
