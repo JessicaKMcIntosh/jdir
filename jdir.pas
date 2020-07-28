@@ -14,6 +14,12 @@ Jessica's Directory
            Added Pagination of output.
 2020-07-19 Use a pattern given on the command line.
 2020-07-26 The pattern can specify the disk and/or user.
+2020-07-27 Implemented the following options:
+  -- Start processing file patterns.
+  -1 Display files in one column. ByColumn
+  -l Synonymous with -1.
+  -n Do not paginate output. PageSize
+  -x Display the file columns across rather than down. ByColumn
 
 Learning Turbo Pascal and CP/M programming.
 
@@ -23,15 +29,10 @@ the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
 TODO:
   Add an option to list system files.
   Configurable number of rows for pagination.
-  Option for no pagination.
 
   Command line options:
-    -1 Display files in one column.
     -a Display all files, including system files.
-    -l Synonymous with -1.
-    -n Do not paginate output.
     -s Display records instead of size in k.
-    -x Display the file columns across rather than down.
 }
 
 const
@@ -40,6 +41,7 @@ const
   PAGE_SIZE             = 22;   { Number of rows per-page. }
                                 { Set to 0 for no pagination. }
   PARAM_LENGTH          = 32;   { Maximum length of the parameter string. }
+                                { This is an arbitrary value. }
 
   { Bdos Functions. }
   BDOS_SET_DRIVE        = $0E; { DRV_SET  - Set the current drive. }
@@ -56,6 +58,7 @@ const
   { Debug Flags }
   DEBUG_GetFile     = False; { Print debug information for GetFile. }
   DEBUG_Bdos        = False; { Print debug information for Bdos calls. }
+  DEBUG_FCBParms    = False; { Print debug when updating the FCB. }
   DEBUG_Parms       = False; { Print debug when processing the parameters. }
 
 type
@@ -95,12 +98,20 @@ type
     end;
 
 var
+  { BDos and file settings. }
   DMA               : array [0..3] of FCBDIR;
   FCB               : FCBDIR absolute $005C;
   FileList          : FileRecord_Ptr;
-  NumberFiles       : Integer;
-  scratch           : String[255];
   BlockSize         : Byte;
+
+  { For pagination and showing the total file count. }
+  NumberFiles       : Integer;
+
+  { Command line paramter settings. }
+  ByColumn          : Boolean;
+  GetAllFiles       : Boolean;
+  OneColumn         : Boolean;
+  PageSize          : Integer;
 
 { Initialize Bdos DMA access. }
 Procedure InitDMA;
@@ -154,27 +165,26 @@ end;
 { Set the current user. }
 Procedure SetUser(User: Integer);
 begin
-  if (DEBUG_Parms) then
+  if (DEBUG_FCBParms) then
     WriteLn('Switching to User: ', User);
   Bdos(BDOS_GET_SET_USER, User);
 end;
 
 { Update the FCB with a pattern from the command line. }
-Procedure UpdateFCB(ParamNum : Integer);
+{ Destructively modifies Parameter. }
+Procedure UpdateFCB(var Parameter : ParamString);
 var
-  Parameter   : ParamString;
   Disk        : Char;
   User        : Integer;
   FileName    : String[8];
   FileType    : String[3];
   Index       : Byte;
 begin
-  Parameter := ParamStr(ParamNum);
   FileName  := '';
   FileType  := '';
   Disk      := ' ';
 
-  if (DEBUG_Parms) then
+  if (DEBUG_FCBParms) then
     WriteLn('Parameter: >', Parameter, '<');
 
   { Check for a Disk and/or User. }
@@ -187,7 +197,7 @@ begin
       { Delete the Disk letter. }
       Delete(Parameter, 1, 1);
       Index := Index - 1;
-      if (DEBUG_Parms) then
+      if (DEBUG_FCBParms) then
         WriteLn('Parameter Disk: ', Disk);
     end;
 
@@ -201,11 +211,11 @@ begin
         SetUser(User);
     end;
     Delete(Parameter, 1, Index);
-    if (DEBUG_Parms) then
+    if (DEBUG_FCBParms) then
       WriteLn('New Parameter: >', Parameter, '<');
   end; { if (Index <> 0) }
 
-  if (DEBUG_Parms) then
+  if (DEBUG_FCBParms) then
     writeln('Parameter: >', Parameter, '< User: ', User);
 
   { Extract a file pattern from the parameter. }
@@ -240,7 +250,7 @@ begin
     for Index := 1 to Length(Filetype) do
       FCB.FileName[Index + 8] := Ord(Upcase(FileType[Index]));
 
-    if (DEBUG_Parms) then begin
+    if (DEBUG_FCBParms) then begin
       WriteLn('File Name: >', FileName, '< Type: >', FileType, '<');
       Write('FCB File Name: >');
       for Index := 1 to 11 do
@@ -362,10 +372,6 @@ var
   BdosReturn    : Byte;
 
 begin
-  { Initialize the list of files. }
-  FileList := Nil;
-  NumberFiles := 0;
-
   { Get files as long as there are more to retrive. }
   BdosFunction := BDOS_SEARCH_FIRST;
   Repeat
@@ -387,7 +393,35 @@ begin
   WriteLn;
 end;
 
-{ Print out the files that have been found by row. }
+{ Print out the files in one column. }
+Procedure PrintFiles;
+var
+  FilePtr     : FileRecord_Ptr;
+  TotalKBytes : Integer;
+  Row         : Integer;
+
+begin
+  FilePtr := FileList;
+  TotalKBytes := 0;
+  Row := 1;
+
+  While (FilePtr <> Nil) do begin
+    with FilePtr^ do begin
+      WriteLn(FileName, '', FileSize:4, 'k ');
+      TotalKBytes := TotalKBytes + FileSize;
+      FilePtr := NextFile;
+
+      if (PageSize > 0) then
+        if ((Row mod PageSize) = 0) then
+          PromptAnyKey;
+      Row := Succ(Row);
+    end; { with FilePtr^ }
+  end; { While (FilePtr <> Nil) }
+
+  Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
+end; { Procedure PrintFilesColumn }
+
+{ Print out the files in columns sorted by row. }
 Procedure PrintFilesRow;
 var
   FilePtr     : FileRecord_Ptr;
@@ -412,14 +446,13 @@ begin
       if (Column = 4) then begin
         WriteLn;
         Column := 0;
+        if (PageSize > 0) then
+          if ((Row mod PageSize) = 0) then
+            PromptAnyKey;
         Row := Succ(Row);
       end else
         Write('| ');
     end; { with FilePtr^ }
-    if ((PAGE_SIZE > 0) and ((Row mod PAGE_SIZE) = 0)) then begin
-      PromptAnyKey;
-      Row := Succ(Row);
-    end;
   end; { While (FilePtr <> Nil) }
 
   if ((Column mod 4) <> 0) then
@@ -428,7 +461,7 @@ begin
   Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
 end; { Procedure PrintFiles }
 
-{ Print out the files that have been found by Column. }
+{ Print out the files in columns sorted by column. }
 Procedure PrintFilesColumn;
 var
   FilePtr     : FileRecord_Ptr;
@@ -468,30 +501,89 @@ begin
         Write('| ');
     end; { for Column := 0 to 3 }
     WriteLn;
-    if ((PAGE_SIZE > 0) and ((Row mod PAGE_SIZE) = 0)) then begin
-      PromptAnyKey;
-    end;
+    if (PageSize > 0) then
+      if ((Row mod PageSize) = 0) then
+        PromptAnyKey;
   end; { for Row := 1 to Rows }
 
   Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
 end; { Procedure PrintFilesColumn }
 
+{ Process command line parameters. }
+Procedure ProcessParameters;
+var
+  ParamNum    : Integer;
+  Parameter   : ParamString;
+  Option      : Char;
+  Stop        : Boolean;
 begin
-  InitDMA;
-  InitFCB;
+  ParamNum := 1;
+  Stop := False; { Stop processing Parameters. }
 
-  { Check if there is a parameter. }
-  if (ParamCount >= 1) then
-    UpdateFCB(1);
+  { Fetch any command line parameters. }
+  Repeat 
+    Parameter := ParamStr(ParamNum);
+    if (DEBUG_Parms) then
+      WriteLn('Parameter: ', Parameter);
+    if (Copy(Parameter, 1, 1) = '-') then begin
+      Option := Upcase(Copy(Parameter, 2, 1));
+      if (DEBUG_Parms) then
+        WriteLn('Option: ', Option);
+      Case Option  of
+        '-': Stop := True;      { End of parameters, start of file patterns. }
+        '1': OneColumn := True;
+        'L': OneColumn := True;
+        'N': PageSize := 0;
+        'X': ByColumn := False;
+      end;
+      ParamNum := Succ(ParamNum);
+    end else
+      Stop := True;
+  Until (Stop or (ParamNum > ParamCount));
 
+  { Process any file patterns. }
+  While (ParamNum <= ParamCount) do begin
+    Parameter := ParamStr(ParamNum);
+    if (DEBUG_Parms) then
+      WriteLn('File Pattern: ', Parameter);
+    GetAllFiles := False;
+    InitFCB;
+    UpdateFCB(Parameter);
+    GetFileList;
+    ParamNum := Succ(ParamNum);
+  end;
+end;
+
+begin
+  { Initialize global variables. }
   BlockSize := GetBlockSize;
   { CPM for OS X does not set the block size. }
   if (BlockSize = 0) then BlockSize := 1;
+  ByColumn := OUTPUT_BY_COLUMN;
+  PageSize := PAGE_SIZE;
+  GetAllFiles := True;
+  OneColumn := False;
+  FileList := Nil;
+  NumberFiles := 0;
 
-  GetFileList;
+  { Prepare for the BDos calls. }
+  InitDMA;
+
+  { Check if there are command line parameters. }
+  if (ParamCount >= 1) then
+    ProcessParameters;
+
+  { If there were no file patterns get all of the files. }
+  if GetAllFiles then begin
+    InitFCB;
+    GetFileList;
+  end;
+
   if (NumberFiles = 0) then
     WriteLn('No files found.')
-  else if (OUTPUT_BY_COLUMN and (NumberFiles > 4)) then
+  else if OneColumn then
+    PrintFiles
+  else if (ByColumn and (NumberFiles > 4)) then
     PrintFilesColumn
   else
     PrintFilesRow;
