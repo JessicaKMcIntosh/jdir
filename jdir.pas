@@ -2,8 +2,14 @@
 program JDIR;
 
 {
-
 Jessica's Directory
+
+Learning Turbo Pascal and CP/M programming.
+
+This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS along
+the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
+
+Change History:
 2020-04-03 First working output.
 2020-04-04 File list is sorted.
 2020-07-11 Reorganized variables and types.
@@ -20,11 +26,6 @@ Jessica's Directory
   -l Synonymous with -1.
   -n Do not paginate output. PageSize
   -x Display the file columns across rather than down. ByColumn
-
-Learning Turbo Pascal and CP/M programming.
-
-This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS along
-the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
 
 TODO:
   Add an option to list system files.
