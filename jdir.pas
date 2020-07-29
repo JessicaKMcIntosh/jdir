@@ -21,12 +21,6 @@ const
   { Bdos return codes. }
   BDOS_SEARCH_LAST      = $FF; { No more files found on Bdos search. }
 
-  { Debug Flags }
-  DEBUG_GetFile     = False; { Print debug information for GetFile. }
-  DEBUG_Bdos        = False; { Print debug information for Bdos calls. }
-  DEBUG_FCBParms    = False; { Print debug when updating the FCB. }
-  DEBUG_Parms       = False; { Print debug when processing the parameters. }
-
 type
   ParamString       = String[PARAM_LENGTH];
   FileRecord_Ptr    = ^FileRecord;
@@ -88,8 +82,6 @@ var
   BdosReturn        : Byte;
 begin
   BdosReturn := Bdos(BDOS_SET_DMA, Addr(DMA));
-  if (DEBUG_Bdos) then
-      WriteLn('Set DMA Return: ', BdosReturn);
 end; { Procedure InitDMA }
 
 { Initialize the FCB used to search for all files. }
@@ -134,8 +126,6 @@ end;
 { Set the current user. }
 Procedure SetUser(User: Integer);
 begin
-  if (DEBUG_FCBParms) then
-    WriteLn('Switching to User: ', User);
   Bdos(BDOS_GET_SET_USER, User);
 end;
 
@@ -153,9 +143,6 @@ begin
   FileType  := '';
   Disk      := ' ';
 
-  if (DEBUG_FCBParms) then
-    WriteLn('Parameter: >', Parameter, '<');
-
   { Check for a Disk and/or User. }
   Index := Pos(':', Parameter);
   if (Index <> 0) then begin
@@ -166,8 +153,6 @@ begin
       { Delete the Disk letter. }
       Delete(Parameter, 1, 1);
       Index := Index - 1;
-      if (DEBUG_FCBParms) then
-        WriteLn('Parameter Disk: ', Disk);
     end;
 
     { Anything left will the the User number. }
@@ -180,12 +165,7 @@ begin
         SetUser(User);
     end;
     Delete(Parameter, 1, Index);
-    if (DEBUG_FCBParms) then
-      WriteLn('New Parameter: >', Parameter, '<');
   end; { if (Index <> 0) }
-
-  if (DEBUG_FCBParms) then
-    writeln('Parameter: >', Parameter, '< User: ', User);
 
   { Extract a file pattern from the parameter. }
   { The FCB is already setup to fetch all files so skip '*' and '*.*'. }
@@ -218,14 +198,6 @@ begin
       FCB.FileName[Index] := Ord(Upcase(FileName[Index]));
     for Index := 1 to Length(Filetype) do
       FCB.FileName[Index + 8] := Ord(Upcase(FileType[Index]));
-
-    if (DEBUG_FCBParms) then begin
-      WriteLn('File Name: >', FileName, '< Type: >', FileType, '<');
-      Write('FCB File Name: >');
-      for Index := 1 to 11 do
-        Write(Chr(FCB.FileName[Index]));
-      WriteLn('<');
-    end;
   end; { if ((Parameter <> '*') and (Parameter <> '*.*')) }
 end;
 
@@ -287,8 +259,6 @@ var
 
 begin
   BdosReturn := Bdos(BdosFunction, Addr(FCB));
-  if (DEBUG_Bdos) then
-    WriteLn('GetFile Bdos Return: ', BdosReturn);
 
   if (BdosReturn <> BDOS_SEARCH_LAST) then begin
     { First byte of the file name in memory. }
@@ -330,10 +300,6 @@ begin
       NewFile^.Records := FileRecords;
       NewFile^.FileSize := FileSize;
 
-      if (DEBUG_GetFile) then begin
-        WriteLn('User Number: ', Number);
-        WriteLn('File Name: ', NewFile^.FileName);
-      end; { if (DEBUG_GetFile) }
     end; { with DMA[BdosReturn] }
 
     { Add this file to the list. }
@@ -354,8 +320,6 @@ begin
   BdosFunction := BDOS_SEARCH_FIRST;
   Repeat
     BdosReturn := GetFile(BdosFunction);
-    if (DEBUG_GetFile) then
-        WriteLn('GetFile Return: ', BdosReturn);
     BdosFunction := BDOS_SEARCH_NEXT;
   Until BdosReturn = BDOS_SEARCH_LAST;
 
@@ -519,12 +483,8 @@ begin
   { Fetch any command line parameters. }
   Repeat 
     Parameter := ParamStr(ParamNum);
-    if (DEBUG_Parms) then
-      WriteLn('Parameter: ', Parameter);
     if (Copy(Parameter, 1, 1) = '-') then begin
       Option := Upcase(Copy(Parameter, 2, 1));
-      if (DEBUG_Parms) then
-        WriteLn('Option: ', Option);
       Case Option  of
         '-': Stop := True;      { End of parameters, start of file patterns. }
         '1': OneColumn := True;
@@ -542,8 +502,6 @@ begin
   { Process any file patterns. }
   While (ParamNum <= ParamCount) do begin
     Parameter := ParamStr(ParamNum);
-    if (DEBUG_Parms) then
-      WriteLn('File Pattern: ', Parameter);
     GetAllFiles := False;
     InitFCB;
     UpdateFCB(Parameter);
