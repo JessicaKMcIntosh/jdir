@@ -37,6 +37,8 @@ type
       FileSize    : Integer;
       Records     : Integer;
       NextFile    : FileRecord_Ptr;
+      System      : Boolean;
+      ReadOnly    : Boolean;
     end;
   FCBDIR = { This is the format used for FCB and Directory Records. }
     record
@@ -77,6 +79,7 @@ var
   ByColumn          : Boolean;
   GetAllFiles       : Boolean;
   OneColumn         : Boolean;
+  ShowSystem        : Boolean;
   PageSize          : Integer;
 
 { Initialize Bdos DMA access. }
@@ -226,13 +229,6 @@ begin
   end; { if ((Parameter <> '*') and (Parameter <> '*.*')) }
 end;
 
-{ Get the currently logged disk. }
-{ Returns the drive number. A = 0, B = 1 ... }
-Function GetDisk : Byte;
-begin
-  GetDisk := Bdos(BDOS_CURRENT_DRIVE);
-end; { Function GetDisk }
-
 { Get the block size for the currently logged disk. }
 Function GetBlockSize : Byte;
 var
@@ -303,6 +299,20 @@ begin
     with DMA[BdosReturn] do begin
       NewFile^.UserNumber := Number;
 
+      { See if this is a system file. }
+      if ((ord(FileName[10]) and $80) > 0) then begin
+        NewFile^.System := True;
+        FileName[10] := (FileName[10] and $7F) + $20;
+      end else
+        NewFile^.System := False;
+
+      { See if this is Read Only. }
+      if ((ord(FileName[9]) and $80) > 0) then begin
+        NewFile^.ReadOnly := True;
+        FileName[9] := (FileName[9] and $7F) + $20;
+      end else
+        NewFile^.ReadOnly := False;
+
       Number := 11; { Used for the file name length. }
       move(Number, NewFile^.FileName, 12);
       insert('.', NewFile^.FileName, 9);
@@ -324,10 +334,12 @@ begin
         WriteLn('User Number: ', Number);
         WriteLn('File Name: ', NewFile^.FileName);
       end; { if (DEBUG_GetFile) }
-    end; { with NewFile^ }
+    end; { with DMA[BdosReturn] }
 
     { Add this file to the list. }
-    AddFile(NewFile);
+    { Only add if the file is not system or ShowSystem is set. }
+    if (NOT NewFile^.System or ShowSystem) then
+      AddFile(NewFile);
   end; { if (Get_File <> BDOS_SEARCH_LAST) }
   GetFile := BdosReturn;
 end; { Function GetFile }
@@ -486,6 +498,7 @@ begin
   WriteLn('Parameters:');
   WriteLn('  -- Start processing file patterns.');
   WriteLn('  -1 Display files in one column. ByColumn');
+  WriteLn('  -a Include system files in the file list.');
   WriteLn('  -l Synonymous with -1.');
   WriteLn('  -n Do not paginate output. PageSize');
   WriteLn('  -x Display the file columns across rather than down. ByColumn');
@@ -515,6 +528,7 @@ begin
       Case Option  of
         '-': Stop := True;      { End of parameters, start of file patterns. }
         '1': OneColumn := True;
+        'A': ShowSystem := True;
         'H': PrintUsage;
         'L': OneColumn := True;
         'N': PageSize := 0;
@@ -544,11 +558,12 @@ begin
   { CPM for OS X does not set the block size. }
   if (BlockSize = 0) then BlockSize := 1;
   ByColumn := OUTPUT_BY_COLUMN;
-  PageSize := PAGE_SIZE;
-  GetAllFiles := True;
-  OneColumn := False;
   FileList := Nil;
+  GetAllFiles := True;
   NumberFiles := 0;
+  OneColumn := False;
+  PageSize := PAGE_SIZE;
+  ShowSystem := False;
 
   { Prepare for the BDos calls. }
   InitDMA;

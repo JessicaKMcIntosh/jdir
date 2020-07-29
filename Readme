@@ -22,11 +22,11 @@ Change History:
   -l Synonymous with -1.
   -n Do not paginate output. PageSize
   -x Display the file columns across rather than down. ByColumn
+2020-07-28 Detect when a file is as system file or readonly.
+           Added the option -a to display system files.
 
 TODO:
-  Add an option to list system files.
   Configurable number of rows for pagination.
 
   Command line options:
-    -a Display all files, including system files.
     -s Display records instead of size in k.
