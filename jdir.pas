@@ -510,6 +510,23 @@ begin
   Writeln('Files: ', NumberFiles, ' ', TotalKBytes, 'k');
 end; { Procedure PrintFilesColumn }
 
+{ Print the command line options. }
+Procedure PrintUsage;
+begin
+  WriteLn('Usage: THIS_PROGRAM [Paramters] [File Patterns]');
+  WriteLn('Lists files like DIR, but more like Unix ls.');
+  WriteLn('Lists all files by default.');
+  WriteLn('File patters work more line Unix wild cards.');
+  WriteLn;
+  WriteLn('Parameters:');
+  WriteLn('  -- Start processing file patterns.');
+  WriteLn('  -1 Display files in one column. ByColumn');
+  WriteLn('  -l Synonymous with -1.');
+  WriteLn('  -n Do not paginate output. PageSize');
+  WriteLn('  -x Display the file columns across rather than down. ByColumn');
+  Halt;
+end;
+
 { Process command line parameters. }
 Procedure ProcessParameters;
 var
@@ -533,6 +550,7 @@ begin
       Case Option  of
         '-': Stop := True;      { End of parameters, start of file patterns. }
         '1': OneColumn := True;
+        'H': PrintUsage;
         'L': OneColumn := True;
         'N': PageSize := 0;
         'X': ByColumn := False;
