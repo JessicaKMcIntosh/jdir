@@ -1,40 +1,5 @@
-{ vim:set ts=2 sts=2 sw=2 }
+{ Jessica's Directory }
 program JDIR;
-
-{
-Jessica's Directory
-
-Learning Turbo Pascal and CP/M programming.
-
-This is a conglomeration of the Tubo Pascal tutorial programs CPMDIR.PAS along
-the files TDIR.PAS and SORTDIR.PAS found on the Walnut Creek CDOM.
-
-Change History:
-2020-04-03 First working output.
-2020-04-04 File list is sorted.
-2020-07-11 Reorganized variables and types.
-           File size is now calculated correctly.
-           Output in columns order by row, PrintFilesRow.
-           Output in columns order by column, PrintFilesColumn.
-           Made output format configurable.
-           Added Pagination of output.
-2020-07-19 Use a pattern given on the command line.
-2020-07-26 The pattern can specify the disk and/or user.
-2020-07-27 Implemented the following options:
-  -- Start processing file patterns.
-  -1 Display files in one column. ByColumn
-  -l Synonymous with -1.
-  -n Do not paginate output. PageSize
-  -x Display the file columns across rather than down. ByColumn
-
-TODO:
-  Add an option to list system files.
-  Configurable number of rows for pagination.
-
-  Command line options:
-    -a Display all files, including system files.
-    -s Display records instead of size in k.
-}
 
 const
   { Configuration }
